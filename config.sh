@@ -2487,6 +2487,7 @@ generate_container_files() {
     local -a additional_lines=()
     local item source container_nr_value command_mode compose_volume
     local tunnel_only=false
+    local publish_port_declared=false
 
     container_nr_value="$(config_value CONTAINER_NR || true)"
     [ "${container_nr_value^^}" = "TUN" ] && tunnel_only=true
@@ -2573,6 +2574,7 @@ generate_container_files() {
             fi
 
             if [[ "$key" == *_PUBLISH_PORT ]]; then
+                publish_port_declared=true
                 [ "$tunnel_only" = "true" ] && continue
                 prefix="${key%_PUBLISH_PORT}"
                 enabled_key="${prefix}_ENABLED"
@@ -2630,7 +2632,8 @@ generate_container_files() {
     add_sqlite_volume_mounts
     add_optional_persistence_mounts
 
-    if [ "$tunnel_only" != "true" ] && [ "${#ports[@]}" -eq 0 ] && [ -n "$first_port" ]; then
+    if [ "$tunnel_only" != "true" ] && [ "$publish_port_declared" != "true" ] \
+        && [ "${#ports[@]}" -eq 0 ] && [ -n "$first_port" ]; then
         add_unique "${host}:${first_port}:${first_port}" ports
     fi
 
