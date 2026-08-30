@@ -101,7 +101,7 @@ jobs:
           docker pull "$image"
           container_id="$(docker run -d -p 127.0.0.1:18000:8000 \
             -e HIBISCUS_MCP_GATEWAY=ci-gateway \
-            -e HIBISCUS_MCP_BEARER=ci-upstream "$image")"
+            -e HIBISCUS_STORE_PASSWORD=ci-upstream "$image")"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
           for attempt in $(seq 1 30); do
             if ! docker inspect --format '{{.State.Running}}' "$container_id" | grep -qx true; then

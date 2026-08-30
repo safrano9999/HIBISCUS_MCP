@@ -15,15 +15,15 @@ Deserializer.prototype.onClosetag = function(tag) {
 
 const incoming = (process.env.HIBISCUS_MCP_REQUEST_BEARER || "").trim();
 const gateway = (process.env.HIBISCUS_MCP_GATEWAY || "").trim();
-const configured = (process.env.HIBISCUS_MCP_BEARER || "").trim();
+const storePassword = (process.env.HIBISCUS_STORE_PASSWORD || "").trim();
 const same = (a, b) => {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
 };
 if (!incoming) throw new Error("Missing MCP bearer");
 if (gateway && !same(incoming, gateway)) throw new Error("Unauthorized MCP bearer");
-if (gateway && !configured) throw new Error("HIBISCUS_MCP_BEARER is required in gateway mode");
-const password = gateway ? configured : incoming;
+if (gateway && !storePassword) throw new Error("HIBISCUS_STORE_PASSWORD is required in gateway mode");
+const password = gateway ? storePassword : incoming;
 const upstream = new URL(process.env.HIBISCUS_MCP_UPSTREAM_URL || "https://hibiscus:8080");
 const rpcUrl = new URL(upstream);
 rpcUrl.pathname = `${rpcUrl.pathname.replace(/\/+$/, "")}/xmlrpc/`.replace(/\/{2,}/g, "/");
