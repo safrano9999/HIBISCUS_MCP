@@ -1,7 +1,0 @@
-[Unit]
-Description=Hibiscus Server and MCP
-Wants=hibiscus.service hibiscus-mcp.service
-After=hibiscus.service hibiscus-mcp.service
-
-[Install]
-WantedBy=multi-user.target

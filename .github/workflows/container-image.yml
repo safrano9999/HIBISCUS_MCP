@@ -39,7 +39,6 @@ jobs:
     timeout-minutes: 20
     env:
       IMAGE_NAME: ghcr.io/safrano9999/hibiscus-mcp
-      COMBINED_IMAGE_NAME: ghcr.io/safrano9999/hibiscus
       DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - name: Check out repository
@@ -65,12 +64,6 @@ jobs:
               echo "${IMAGE_NAME}:latest"
             fi
             echo "EOF"
-            echo "combined_tags<<EOF"
-            echo "${COMBINED_IMAGE_NAME}:${version}"
-            if [ "${{ inputs.push_latest }}" = true ]; then
-              echo "${COMBINED_IMAGE_NAME}:latest"
-            fi
-            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -88,7 +81,6 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and publish standalone MCP
-        id: standalone
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -98,19 +90,6 @@ jobs:
           no-cache: true
           push: true
           tags: ${{ steps.tags.outputs.tags }}
-
-      - name: Build and publish Hibiscus combination image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./container/Containerfile
-          platforms: linux/amd64
-          build-args: |
-            HIBISCUS_MCP_IMAGE=${{ env.IMAGE_NAME }}@${{ steps.standalone.outputs.digest }}
-          pull: true
-          no-cache: true
-          push: true
-          tags: ${{ steps.tags.outputs.combined_tags }}
 
       - name: Smoke-test published image
         env:
@@ -145,20 +124,3 @@ jobs:
             --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
             http://127.0.0.1:18000/mcp)"
           grep -Fq 'hibiscus-mcp' <<< "$response"
-
-      - name: Smoke-test combination image
-        env:
-          IMAGE_TAG: ${{ steps.tags.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          image="${COMBINED_IMAGE_NAME}:${IMAGE_TAG}"
-          docker pull "$image"
-          test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/sbin/init"]'
-          docker run --rm --entrypoint /bin/bash "$image" -lc '
-            set -euo pipefail
-            test -f /usr/local/hibiscus/plugins/hibiscus/lib/hbci4j-core-4.1.12.jar
-            node --check /opt/hibiscus-mcp/server.mjs
-            systemd-analyze verify hibiscus.service hibiscus-mcp.service hibiscus.target
-            java --version
-          '
