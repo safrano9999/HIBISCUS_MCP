@@ -12,8 +12,11 @@ RUN git init \
     && git checkout --detach FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${SUPERGATEWAY_REVISION}"
 COPY patches/supergateway-bearer.patch /tmp/supergateway-bearer.patch
+COPY patches/supergateway-bind-host.patch /tmp/supergateway-bind-host.patch
 RUN git apply --unidiff-zero --check /tmp/supergateway-bearer.patch \
     && git apply --unidiff-zero /tmp/supergateway-bearer.patch \
+    && git apply --check /tmp/supergateway-bind-host.patch \
+    && git apply /tmp/supergateway-bind-host.patch \
     && npm ci \
     && npm run build \
     && npm prune --omit=dev
