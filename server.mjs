@@ -4,7 +4,14 @@ import https from "node:https";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import xmlrpc from "xmlrpc";
+import Deserializer from "xmlrpc/lib/deserializer.js";
 import { z } from "zod";
+
+// Apache XML-RPC uses <ex:nil/> for void Hibiscus mutations.
+const closeTag = Deserializer.prototype.onClosetag;
+Deserializer.prototype.onClosetag = function(tag) {
+  return closeTag.call(this, tag.endsWith(":NIL") ? "NIL" : tag);
+};
 
 const incoming = (process.env.HIBISCUS_MCP_REQUEST_BEARER || "").trim();
 const gateway = (process.env.HIBISCUS_MCP_GATEWAY || "").trim();
@@ -74,7 +81,7 @@ const triggerSync = () => new Promise((resolve, reject) => {
 
 const server = new McpServer({ name: "hibiscus-mcp", version: "1.0.0" });
 server.registerTool("create_transfer", {
-  description: "Store one SEPA transfer in Hibiscus and trigger Sync now. Instant payment defaults to false. Sync starts all due Hibiscus jobs asynchronously.",
+  description: "Store one SEPA transfer in Hibiscus and request Sync now. Instant payment defaults to false. A successful response does not confirm bank execution.",
   inputSchema: {
     account_id: z.string().min(1),
     recipient_name: z.string().min(1).max(70),
@@ -99,10 +106,11 @@ server.registerTool("create_transfer", {
   const id = mutation(await rpc("hibiscus.xmlrpc.sepaueberweisung.create", [transfer]));
   try {
     const status = await triggerSync();
-    return { stored: true, id, instant: args.instant, sync_triggered: true, sync_http_status: status };
+    return { stored: true, id, instant: args.instant, sync_triggered: true,
+      sync_http_status: status, execution_confirmed: false };
   } catch (error) {
     return { stored: true, id, instant: args.instant, sync_triggered: false,
-      warning: `Transfer remains pending: ${error.message}` };
+      execution_confirmed: false, warning: `Transfer remains pending: ${error.message}` };
   }
 }));
 
