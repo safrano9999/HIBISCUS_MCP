@@ -1,0 +1,126 @@
+# Source of truth: SCRIPTS/githubactions. Generated copies are overwritten.
+name: Hibiscus MCP container image
+run-name: ${{ inputs.monitor_id != '' && format('{0} [monitor:{1}:{2}]', github.workflow, inputs.monitor_id, inputs.monitor_final) || github.workflow }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to publish. Empty uses YYYY.M.D."
+        required: false
+        default: ""
+      push_latest:
+        description: "Also publish :latest"
+        required: true
+        type: boolean
+        default: true
+      monitor_id:
+        description: "Optional event-monitor correlation id"
+        required: false
+        default: ""
+        type: string
+      monitor_final:
+        description: "This run is the final monitored cascade stage"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: hibiscus-mcp-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_NAME: ghcr.io/safrano9999/hibiscus-mcp
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ inputs.image_tag }}"
+          if [ -z "$version" ]; then
+            version="$(date -u +%Y.%-m.%-d)"
+          fi
+          [[ "$version" =~ ^[A-Za-z0-9_.-]+$ ]]
+          {
+            echo "version=$version"
+            echo "tags<<EOF"
+            echo "${IMAGE_NAME}:${version}"
+            if [ "${{ inputs.push_latest }}" = true ]; then
+              echo "${IMAGE_NAME}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          cache-binary: false
+          keep-state: false
+          cleanup: true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64
+          pull: true
+          no-cache: true
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Smoke-test published image
+        env:
+          IMAGE_TAG: ${{ steps.tags.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${IMAGE_NAME}:${IMAGE_TAG}"
+          docker pull "$image"
+          container_id="$(docker run -d -p 127.0.0.1:18000:8000 \
+            -e HIBISCUS_MCP_GATEWAY=ci-gateway \
+            -e HIBISCUS_MCP_BEARER=ci-upstream "$image")"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if ! docker inspect --format '{{.State.Running}}' "$container_id" | grep -qx true; then
+              docker logs "$container_id"
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:18000/healthz | grep -qx ok; then
+              break
+            fi
+            sleep 1
+          done
+          test "$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            http://127.0.0.1:18000/mcp)" = 401
+          response="$(curl -fsS \
+            -H 'Authorization: Bearer ci-gateway' \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            http://127.0.0.1:18000/mcp)"
+          grep -Fq 'hibiscus-mcp' <<< "$response"

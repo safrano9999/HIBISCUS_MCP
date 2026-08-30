@@ -1,0 +1,11 @@
+.env
+config.conf
+container.conf
+build.conf
+*.env
+*_config.conf
+*_container.conf
+*.container
+docker-compose.yml
+*-compose.yml
+node_modules/

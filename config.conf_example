@@ -1,0 +1,7 @@
+#default-preset: https://hibiscus:8080
+#required: Hibiscus upstream URL
+HIBISCUS_MCP_UPSTREAM_URL=https://hibiscus:8080
+
+#default-preset: 8000
+#required: Streamable HTTP MCP port
+HIBISCUS_MCP_PORT=8000

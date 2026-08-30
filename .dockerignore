@@ -1,0 +1,11 @@
+.git
+.env
+*.env
+config.conf
+container.conf
+*_config.conf
+*_container.conf
+*.container
+docker-compose.yml
+*-compose.yml
+node_modules

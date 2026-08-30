@@ -1,0 +1,50 @@
+diff --git a/src/gateways/stdioToStatefulStreamableHttp.ts b/src/gateways/stdioToStatefulStreamableHttp.ts
+index f45661e..05a9001 100644
+--- a/src/gateways/stdioToStatefulStreamableHttp.ts
++++ b/src/gateways/stdioToStatefulStreamableHttp.ts
+@@ -93,0 +94,20 @@ export async function stdioToStatefulStreamableHttp(
++  const sessionTokens: { [sessionId: string]: string } = {}
++
++  const bearerToken = (req: express.Request) => {
++    const authorization = req.header('authorization') ?? ''
++    const match = authorization.match(/^Bearer\s+(.+)$/i)
++    return match?.[1]?.trim() ?? ''
++  }
++
++  const authorizeSession = (
++    req: express.Request,
++    res: express.Response,
++    sessionId: string,
++  ) => {
++    const token = bearerToken(req)
++    if (!token || sessionTokens[sessionId] !== token) {
++      res.status(401).send('Unauthorized')
++      return false
++    }
++    return true
++  }
+@@ -105,0 +126 @@ export async function stdioToStatefulStreamableHttp(
++          delete sessionTokens[sessionId]
+@@ -114,0 +136 @@ export async function stdioToStatefulStreamableHttp(
++    const token = bearerToken(req)
+@@ -117,0 +140 @@ export async function stdioToStatefulStreamableHttp(
++      if (!authorizeSession(req, res, sessionId)) return
+@@ -123,0 +147,4 @@ export async function stdioToStatefulStreamableHttp(
++      if (!token) {
++        res.status(401).send('Unauthorized')
++        return
++      }
+@@ -134,0 +162 @@ export async function stdioToStatefulStreamableHttp(
++          sessionTokens[sessionId] = token
+@@ -140 +168,4 @@ export async function stdioToStatefulStreamableHttp(
+-      const child = spawn(stdioCmd, { shell: true })
++      const child = spawn(stdioCmd, {
++        shell: true,
++        env: { ...process.env, HIBISCUS_MCP_REQUEST_BEARER: token },
++      })
+@@ -184,0 +216 @@ export async function stdioToStatefulStreamableHttp(
++          delete sessionTokens[transport.sessionId]
+@@ -197,0 +230 @@ export async function stdioToStatefulStreamableHttp(
++          delete sessionTokens[transport.sessionId]
+@@ -240,0 +274 @@ export async function stdioToStatefulStreamableHttp(
++    if (!authorizeSession(req, res, sessionId)) return
