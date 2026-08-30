@@ -1,0 +1,17 @@
+#CONTAINER-NAME
+CONTAINER_NAME=hibiscus
+
+#default-preset: 8000
+HIBISCUS_MCP_PUBLISH_PORT=8000
+
+#default-preset: hibiscus-jameica:/var/lib/hibiscus/.jameica:Z
+#required: Persistent Jameica user data
+HIBISCUS_JAMEICA_VOLUMES=hibiscus-jameica:/var/lib/hibiscus/.jameica:Z
+
+#default-preset: hibiscus-cfg:/usr/local/hibiscus/cfg:Z
+#required: Persistent Hibiscus server configuration
+HIBISCUS_CFG_VOLUMES=hibiscus-cfg:/usr/local/hibiscus/cfg:Z
+
+#repeat-group: ADDITIONAL_LINE suffix02 ADDITIONAL_LINE
+#repeat-freeform: ADDITIONAL_LINE
+ADDITIONAL_LINE=

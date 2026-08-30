@@ -11,3 +11,4 @@ docker-compose.yml
 node_modules/
 .runtime/
 *.service
+!container/systemd/*.service
