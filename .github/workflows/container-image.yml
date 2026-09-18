@@ -84,12 +84,16 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Containerfile
+          file: .github/scripts/Containerfile
           platforms: linux/amd64
           pull: true
           no-cache: true
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            io.safrano9999.build.commit=${{ github.sha }}
+            io.safrano9999.build.source=e21fa85c7709588713baf184f290fa25b0600f52
+            io.safrano9999.build.inputs=81c628cda10c3e2947b07c32565a081af4c1ebf3a22bc702dbbbc96ac6009e58
 
       - name: Smoke-test published image
         env:
