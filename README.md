@@ -34,9 +34,40 @@ integriert diesen MCP-Server und Hibiscus in einem gemeinsamen Fedora-Container.
 | `pending_transfers` | Listet offene Überweisungen oder löscht einen noch offenen Auftrag anhand seiner Hibiscus-ID. |
 | `get_balance` | Liest die zuletzt in Hibiscus gespeicherten Kontostände, optional gefiltert nach Konto-ID oder IBAN. |
 
-Ein erfolgreicher `create_transfer`-Aufruf bestätigt zunächst nur Speicherung
-und Sync-Anstoß. Die tatsächliche Bankausführung lässt sich anschließend über
-`pending_transfers` beziehungsweise den aktualisierten Kontostand prüfen.
+`create_transfer` liest zunächst den Sync-Status. Bei laufender Synchronisierung
+oder nicht lesbarem Status wird kein Auftrag erstellt. Anschließend wird genau
+ein Auftrag gespeichert, einmal `action=execute` an `/hibiscus/` gesendet und
+serverseitig höchstens 30 Sekunden auf den Sync-Abschluss gewartet. Für eine
+Echtzeitüberweisung muss der Client ausdrücklich `instant=true` setzen.
+
+Die Rückgabe enthält `stored`, `id`, `instant`, `sync_triggered`, `sync_status`
+und eine kurze `message`. `sync_status=completed` bedeutet:
+**„Überweisung erstellt und Synchronisierung erfolgreich abgeschlossen.“**
+Das ist eine Bestätigung des Sync-Ablaufs, keine Bestätigung einer einzelnen
+Bankbuchung. Der Client soll die Nachricht ausgeben und aufhören; er soll weder
+`pending_transfers`/`get_balance` pollen noch auf eine gesonderte Bankannahme
+warten. Das bisherige Feld `execution_confirmed: false` entfällt.
+
+Fehler werden als `failed`, nicht eindeutig beobachtbare Abschlüsse als `unknown`
+gemeldet. Nach dem Speichern bleibt `stored=true` auch bei einem Sync-Fehler.
+Eine unterbrochene Speicherantwort ergibt `stored=null`: Der Client darf den
+Auftrag nicht automatisch neu anlegen. `sync_triggered=null` heißt, dass der
+Start nicht belegt ist, nicht dass sicher kein Sync stattfand. Es gibt keine
+automatische Wiederholung von Speicherung oder Sync-POST.
+
+Hibiscus stellt keine öffentliche Sync-Run-ID bereit. Der MCP gleicht deshalb
+neue Einträge des bestehenden System-Logs mit dem Stand vor dem Aufruf ab und
+verlangt einen frischen Start sowie Abschluss von `ExecuteServiceImpl`. Alte
+Erfolgsmeldungen, verlorene Log-Einträge, überlappende Läufe und Fehler ergeben
+keinen Erfolg. Der Sync betrifft die gesamte Hibiscus-Warteschlange; sein
+Abschluss beweist nicht die Annahme eines einzelnen Auftrags. Gleichzeitige
+Aufträge innerhalb derselben MCP-Sitzung werden abgewiesen. Andere Sitzungen,
+Scheduler oder manuelle Syncs sind nicht global gesperrt; bei erkennbarer
+Mehrdeutigkeit bleibt das Ergebnis `unknown`. Die Hibiscus-Anwendung wird dafür
+nicht verändert.
+
+`npm test` prüft Echtzeit-Parameter, Reihenfolge, Abschlusskorrelation, Fehler,
+Timeouts und HTTP-Verhalten ausschließlich mit lokalen Stubs, ohne Bankzugriff.
 
 ## Authentifizierung
 

@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import http from "node:http";
-import https from "node:https";
+import { createSyncRequest, createTransferHandler } from "./sync.mjs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import xmlrpc from "xmlrpc";
@@ -53,35 +52,9 @@ const guarded = (handler) => async (args) => {
   }
 };
 
-const triggerSync = () => new Promise((resolve, reject) => {
-  const url = new URL("/hibiscus/", upstream);
-  const body = "action=execute";
-  const transport = url.protocol === "https:" ? https : http;
-  const request = transport.request({
-    hostname: url.hostname,
-    port: Number(url.port || (url.protocol === "https:" ? 443 : 80)),
-    path: `${url.pathname}${url.search}`,
-    method: "POST",
-    rejectUnauthorized: false,
-    headers: {
-      Authorization: authorization,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": Buffer.byteLength(body),
-    },
-  }, (response) => {
-    response.resume();
-    response.on("end", () => response.statusCode >= 200 && response.statusCode < 400
-      ? resolve(response.statusCode)
-      : reject(new Error(`Hibiscus sync returned HTTP ${response.statusCode}`)));
-  });
-  request.setTimeout(15000, () => request.destroy(new Error("Hibiscus sync timed out")));
-  request.on("error", reject);
-  request.end(body);
-});
-
-const server = new McpServer({ name: "hibiscus-mcp", version: "1.0.0" });
+const server = new McpServer({ name: "hibiscus-mcp", version: "1.1.0" });
 server.registerTool("create_transfer", {
-  description: "Store one SEPA transfer in Hibiscus and request Sync now. Instant payment defaults to false. A successful response does not confirm bank execution.",
+  description: "Store one SEPA transfer, trigger Hibiscus Sync once and observe sync completion internally for up to 30 seconds. Instant payment defaults to false; use instant=true for instant payment. Report the returned message, then stop: do not poll balances or pending transfers, wait for bank acceptance or automatically repeat create_transfer. A completed sync is not confirmation of an individual bank transaction.",
   inputSchema: {
     account_id: z.string().min(1),
     recipient_name: z.string().min(1).max(70),
@@ -92,27 +65,22 @@ server.registerTool("create_transfer", {
     execution_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     instant: z.boolean().default(false),
   },
-}, guarded(async (args) => {
-  const transfer = {
-    konto: args.account_id,
-    name: args.recipient_name,
-    kontonummer: args.recipient_iban.replace(/\s+/g, "").toUpperCase(),
-    blz: (args.recipient_bic || "").replace(/\s+/g, "").toUpperCase(),
-    betrag: args.amount,
-    verwendungszweck: args.purpose,
-    instantpayment: args.instant,
-  };
-  if (args.execution_date) transfer.termin = args.execution_date;
-  const id = mutation(await rpc("hibiscus.xmlrpc.sepaueberweisung.create", [transfer]));
-  try {
-    const status = await triggerSync();
-    return { stored: true, id, instant: args.instant, sync_triggered: true,
-      sync_http_status: status, execution_confirmed: false };
-  } catch (error) {
-    return { stored: true, id, instant: args.instant, sync_triggered: false,
-      execution_confirmed: false, warning: `Transfer remains pending: ${error.message}` };
-  }
-}));
+}, guarded(createTransferHandler({
+  request: createSyncRequest(upstream, authorization),
+  create: async (args) => {
+    const transfer = {
+      konto: args.account_id,
+      name: args.recipient_name,
+      kontonummer: args.recipient_iban.replace(/\s+/g, "").toUpperCase(),
+      blz: (args.recipient_bic || "").replace(/\s+/g, "").toUpperCase(),
+      betrag: args.amount,
+      verwendungszweck: args.purpose,
+      instantpayment: args.instant,
+    };
+    if (args.execution_date) transfer.termin = args.execution_date;
+    return mutation(await rpc("hibiscus.xmlrpc.sepaueberweisung.create", [transfer]));
+  },
+})));
 
 server.registerTool("pending_transfers", {
   description: "List pending SEPA transfers or delete one still-pending transfer by its exact Hibiscus ID.",

@@ -24,7 +24,8 @@ RUN git apply --unidiff-zero --check /tmp/supergateway-bearer.patch \
 WORKDIR /src/hibiscus-mcp
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server.mjs ./
+COPY server.mjs sync.mjs ./
+COPY test/ ./test/
 RUN npm test
 
 FROM ${NODE_IMAGE}
