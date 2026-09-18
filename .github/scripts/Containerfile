@@ -14,10 +14,13 @@ RUN git init \
     && test "$(git rev-parse HEAD)" = "${SUPERGATEWAY_REVISION}"
 COPY patches/supergateway-bearer.patch /tmp/supergateway-bearer.patch
 COPY patches/supergateway-bind-host.patch /tmp/supergateway-bind-host.patch
+COPY patches/supergateway-mcp-sdk.patch /tmp/supergateway-mcp-sdk.patch
 RUN git apply --unidiff-zero --check /tmp/supergateway-bearer.patch \
     && git apply --unidiff-zero /tmp/supergateway-bearer.patch \
     && git apply --check /tmp/supergateway-bind-host.patch \
     && git apply /tmp/supergateway-bind-host.patch \
+    && git apply --check /tmp/supergateway-mcp-sdk.patch \
+    && git apply /tmp/supergateway-mcp-sdk.patch \
     && npm ci \
     && npm run build \
     && npm prune --omit=dev

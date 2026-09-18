@@ -135,9 +135,22 @@ kann dann ausschließlich über ein gemeinsames Podman-Netz erreicht werden.
 
 ## Build
 
-Das [`Containerfile`](Containerfile) baut zuerst das gepatchte Supergateway und
+Das [`STANDALONE/Containerfile`](STANDALONE/Containerfile) baut zuerst das gepatchte Supergateway und
 den MCP-Server, prüft `server.mjs` und erzeugt anschließend ein minimales
 Alpine-basiertes Runtime-Image. Veröffentlichung und Smoke-Test erfolgen über
 [`container-image.yml`](.github/workflows/container-image.yml).
 
 Lizenz: [MIT](LICENSE)
+
+## Gemeinsames Image und optionaler Standalone-Build
+
+Das produktiv verwendete gemeinsame Image ist
+[`safrano9999-hibiscus`](https://github.com/safrano9999/safrano9999-hibiscus).
+Sein GitHub-Action-Build lädt dieses Quellrepo und baut MCP und Banking-Server
+zusammen. Dafür muss kein `hibiscus-mcp`-Image veröffentlicht werden.
+
+`STANDALONE/Containerfile` bleibt als optionaler separater Build erhalten
+(Build-Kontext: Wurzel dieses Repos). Die manuell auslösbare Container-Action
+verwendet diese Datei. Bare Metal ist weiterhin über `setup.sh` möglich.
+Die bereits eingesetzten Supergateway-Patches für Bearer, Bind-Adresse und
+MCP-SDK 1.30.0 sind hier zusammengeführt.

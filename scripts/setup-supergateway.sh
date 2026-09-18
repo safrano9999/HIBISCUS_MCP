@@ -29,6 +29,8 @@ git -C "$tmp" apply --unidiff-zero --check "$ROOT/patches/supergateway-bearer.pa
 git -C "$tmp" apply --unidiff-zero "$ROOT/patches/supergateway-bearer.patch"
 git -C "$tmp" apply --check "$ROOT/patches/supergateway-bind-host.patch"
 git -C "$tmp" apply "$ROOT/patches/supergateway-bind-host.patch"
+git -C "$tmp" apply --check "$ROOT/patches/supergateway-mcp-sdk.patch"
+git -C "$tmp" apply "$ROOT/patches/supergateway-mcp-sdk.patch"
 npm --prefix "$tmp" ci
 npm --prefix "$tmp" run build
 npm --prefix "$tmp" prune --omit=dev
