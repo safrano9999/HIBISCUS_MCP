@@ -1,50 +1,177 @@
-diff --git a/src/gateways/stdioToStatefulStreamableHttp.ts b/src/gateways/stdioToStatefulStreamableHttp.ts
-index f45661e..05a9001 100644
 --- a/src/gateways/stdioToStatefulStreamableHttp.ts
 +++ b/src/gateways/stdioToStatefulStreamableHttp.ts
-@@ -93,0 +94,20 @@ export async function stdioToStatefulStreamableHttp(
-+  const sessionTokens: { [sessionId: string]: string } = {}
-+
+@@ -74,7 +74,23 @@
+   )
+ 
+   const children = new OwnedChildProcesses(logger)
+-  const modern = createModernHttp({ stdioCmd, children, logger })
 +  const bearerToken = (req: express.Request) => {
-+    const authorization = req.header('authorization') ?? ''
-+    const match = authorization.match(/^Bearer\s+(.+)$/i)
++    const match = (req.header('authorization') ?? '').match(/^Bearer\s+(.+)$/i)
 +    return match?.[1]?.trim() ?? ''
 +  }
-+
-+  const authorizeSession = (
-+    req: express.Request,
-+    res: express.Response,
-+    sessionId: string,
-+  ) => {
-+    const token = bearerToken(req)
-+    if (!token || sessionTokens[sessionId] !== token) {
++  const sessionTokens = new Map<string, string>()
++  const authorizeSession = (req: express.Request, res: express.Response, id: string) => {
++    if (sessionTokens.get(id) !== bearerToken(req)) {
 +      res.status(401).send('Unauthorized')
 +      return false
 +    }
 +    return true
 +  }
-@@ -105,0 +126 @@ export async function stdioToStatefulStreamableHttp(
-+          delete sessionTokens[sessionId]
-@@ -114,0 +136 @@ export async function stdioToStatefulStreamableHttp(
-+    const token = bearerToken(req)
-@@ -117,0 +140 @@ export async function stdioToStatefulStreamableHttp(
-+      if (!authorizeSession(req, res, sessionId)) return
-@@ -123,0 +147,4 @@ export async function stdioToStatefulStreamableHttp(
-+      if (!token) {
-+        res.status(401).send('Unauthorized')
-+        return
-+      }
-@@ -134,0 +162 @@ export async function stdioToStatefulStreamableHttp(
-+          sessionTokens[sessionId] = token
-@@ -140 +168,4 @@ export async function stdioToStatefulStreamableHttp(
--      const child = spawn(stdioCmd, { shell: true })
++  const modern = createModernHttp({
++    stdioCmd, children, logger,
++    requestEnv: (req) => ({ ...process.env, HIBISCUS_MCP_REQUEST_BEARER: bearerToken(req) }),
++    requestScope: bearerToken,
++  })
+   onSignals({
+     logger,
+     cleanup: async () => {
+@@ -151,10 +167,22 @@
+             logger.error(`Failed to close timed-out session ${sessionId}`, err)
+           })
+           transports.delete(sessionId)
++          sessionTokens.delete(sessionId)
+         },
+         logger,
+       )
+     : null
++
++  // Require authentication before either the legacy or modern HTTP route.
++  app.use(streamableHttpPath, (req, res, next) => {
++    if (!bearerToken(req)) {
++      res.status(401).send('Unauthorized')
++      return
++    }
++    const id = req.header('mcp-session-id')
++    if (id && transports.has(id) && !authorizeSession(req, res, id)) return
++    next()
++  })
+ 
+   // Handle POST requests for client-to-server communication
+   app.post(streamableHttpPath, async (req, res) => {
+@@ -190,6 +218,7 @@
+           if (probe) liveness.set(sessionId, probe)
+           // Store the transport by session ID
+           transports.set(sessionId, transport)
++          sessionTokens.set(sessionId, bearerToken(req))
+           // Initialize session access count
+           sessionCounter?.inc(sessionId, 'session initialization')
+         },
+@@ -216,7 +245,10 @@
+       await server.connect(transport)
+       const responses = new Set<express.Response>()
+       openResponses.set(transport, responses)
+-      const child = spawn(stdioCmd, children.spawnOptions)
 +      const child = spawn(stdioCmd, {
-+        shell: true,
-+        env: { ...process.env, HIBISCUS_MCP_REQUEST_BEARER: token },
++        ...children.spawnOptions,
++        env: { ...process.env, HIBISCUS_MCP_REQUEST_BEARER: bearerToken(req) },
 +      })
-@@ -184,0 +216 @@ export async function stdioToStatefulStreamableHttp(
-+          delete sessionTokens[transport.sessionId]
-@@ -197,0 +230 @@ export async function stdioToStatefulStreamableHttp(
-+          delete sessionTokens[transport.sessionId]
-@@ -240,0 +274 @@ export async function stdioToStatefulStreamableHttp(
-+    if (!authorizeSession(req, res, sessionId)) return
+       const stop = children.own(child)
+       const pendingRequests = new Set<string | number>()
+       let childStopped = false
+@@ -227,6 +259,7 @@
+           liveness.delete(initializedSessionId)
+           sessionCounter?.clear(initializedSessionId, false, reason)
+           transports.delete(initializedSessionId)
++          sessionTokens.delete(initializedSessionId)
+         }
+         probe?.close()
+         void stop()
+--- a/src/lib/modernHttp.ts
++++ b/src/lib/modernHttp.ts
+@@ -28,6 +28,8 @@
+   stdioCmd: string
+   children: OwnedChildProcesses
+   logger: Logger
++  requestEnv?: (req: Request) => NodeJS.ProcessEnv
++  requestScope?: (req: Request) => string
+ }) {
+   const { stdioCmd, children, logger } = args
+   const active = new Set<() => Promise<void>>()
+@@ -101,6 +103,7 @@
+       const transport = new PerRequestHTTPServerTransport({
+         classification: route.classification,
+       })
++      const scope = args.requestScope?.(req)
+       const continuation =
+         route.messageKind === 'request'
+           ? route.message.params!.requestState
+@@ -110,7 +113,7 @@
+       res.once('close', cancelled)
+       if (res.destroyed) waiting.abort()
+       const reused = isContinuationHandle(continuation)
+-        ? await retained.take(continuation, waiting.signal)
++        ? await retained.take(continuation, waiting.signal, scope)
+         : undefined
+       res.off('close', cancelled)
+       if (isContinuationHandle(continuation) && !reused) {
+@@ -124,7 +127,7 @@
+         return true
+       }
+       const child =
+-        reused?.child ?? new OwnedStdioTransport(stdioCmd, children, logger)
++        reused?.child ?? new OwnedStdioTransport(stdioCmd, children, logger, args.requestEnv?.(req))
+       let awaitingReply = false
+       let message = route.message
+       if (reused) {
+@@ -238,7 +241,7 @@
+                 ...message,
+                 result: {
+                   ...message.result,
+-                  requestState: retained.retain(state.value, child),
++                  requestState: retained.retain(state.value, child, scope),
+                 },
+               }
+             }
+--- a/src/lib/ownedStdioTransport.ts
++++ b/src/lib/ownedStdioTransport.ts
+@@ -22,10 +22,11 @@
+     private readonly command: string,
+     private readonly owner: OwnedChildProcesses,
+     private readonly logger: Logger,
++    private readonly env?: NodeJS.ProcessEnv,
+   ) {}
+ 
+   async start(): Promise<void> {
+-    const child = spawn(this.command, this.owner.spawnOptions)
++    const child = spawn(this.command, { ...this.owner.spawnOptions, ...(this.env ? { env: this.env } : {}) })
+     this.child = child
+     this.stop = this.owner.own(child)
+     const fail = (error: Error) => {
+--- a/src/lib/retainedChildren.ts
++++ b/src/lib/retainedChildren.ts
+@@ -10,6 +10,7 @@
+ 
+ type Flow = {
+   child: OwnedStdioTransport
++  scope?: string
+   handles: Set<string>
+   waiters: Set<() => void>
+   busy: boolean
+@@ -32,10 +33,10 @@
+     return this.entries.size
+   }
+ 
+-  retain(state: string | undefined, child: OwnedStdioTransport): string {
++  retain(state: string | undefined, child: OwnedStdioTransport, scope?: string): string {
+     let flow = this.flows.get(child)
+     if (!flow) {
+-      flow = { child, handles: new Set(), waiters: new Set(), busy: true }
++      flow = { child, scope, handles: new Set(), waiters: new Set(), busy: true }
+       this.flows.set(child, flow)
+     }
+     const handle = `sgw:${randomUUID()}`
+@@ -56,12 +57,13 @@
+   async take(
+     handle: string,
+     signal?: AbortSignal,
++    scope?: string,
+   ): Promise<
+     { child: OwnedStdioTransport; state: string | undefined } | undefined
+   > {
+     for (;;) {
+       const binding = this.entries.get(handle)
+-      if (!binding || this.closed || signal?.aborted) return undefined
++      if (!binding || binding.flow.scope !== scope || this.closed || signal?.aborted) return undefined
+       const flow = binding.flow
+       if (!flow.busy) {
+         flow.busy = true

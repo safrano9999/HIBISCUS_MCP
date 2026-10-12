@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-REVISION=973c4595250dcd59da83c12c4f11ff653b6cd4f0
+REVISION=a3ce8ba34c40f7565d1786e1dbd19621aca86093
 TARGET="$ROOT/.runtime/supergateway"
 patch_hash="$(cd "$ROOT/patches" && sha256sum supergateway-*.patch | sha256sum | awk '{print $1}')"
 stamp="$REVISION $patch_hash"
@@ -29,10 +29,10 @@ git -C "$tmp" apply --unidiff-zero --check "$ROOT/patches/supergateway-bearer.pa
 git -C "$tmp" apply --unidiff-zero "$ROOT/patches/supergateway-bearer.patch"
 git -C "$tmp" apply --check "$ROOT/patches/supergateway-bind-host.patch"
 git -C "$tmp" apply "$ROOT/patches/supergateway-bind-host.patch"
-git -C "$tmp" apply --check "$ROOT/patches/supergateway-mcp-sdk.patch"
-git -C "$tmp" apply "$ROOT/patches/supergateway-mcp-sdk.patch"
+# Supergateway 4.1.0 already pins SDK 1.30.0; keep its upstream dependency lock.
 npm --prefix "$tmp" ci
 npm --prefix "$tmp" run build
+"$NODE_BIN" "$ROOT/scripts/verify-supergateway.mjs" "$tmp" HIBISCUS_MCP_REQUEST_BEARER
 npm --prefix "$tmp" prune --omit=dev
 printf '%s\n' "$stamp" > "$tmp/.hibiscus-build"
 rm -rf -- "$TARGET"
